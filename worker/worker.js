@@ -2,11 +2,14 @@
 //
 // Bindings (set by deploy.mjs):
 //   DB               KV namespace
-//   ACCESS_KEY       secret; the page sends it as "Authorization: Bearer <key>"
 //   ALLOWED_ORIGINS  comma-separated page origins, default https://yuuteng.github.io
 //
 // GET  /sync   -> { books: { id: book }, deleted: { id: ms } }
 // POST /sync   { books, deleted } -> merges with what is stored, returns the merged state
+//
+// There is no passphrase: /sync answers any request whose Origin is an allowed page. That keeps other
+// websites out, but a script that fakes the Origin header can read and change the list. The daily
+// snapshots are the safety net.
 //
 // Merge is per book, last write wins by updatedAt. A tombstone in `deleted` beats any version
 // that is not newer than it. Merging is idempotent, so a lost race is repaired by the next sync.
@@ -22,18 +25,14 @@ export default {
     const cors = {
       "Access-Control-Allow-Origin": okOrigin ? origin : allowed[0],
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Headers": "Content-Type",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin",
     };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (origin && !okOrigin) return json({ error: "origin not allowed" }, 403, cors);
-
     const url = new URL(req.url);
     if (url.pathname !== "/sync") return json({ ok: true, service: "reading-log" }, 200, cors);
-    if (!env.ACCESS_KEY) return json({ error: "ACCESS_KEY not set" }, 500, cors);
-    const given = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-    if (!(await same(given, env.ACCESS_KEY))) return json({ error: "unauthorized" }, 401, cors);
+    if (!okOrigin) return json({ error: "origin not allowed" }, 403, cors);
 
     const stored = normalize(await env.DB.get("library", "json"));
     if (req.method === "GET") return json(stored, 200, cors);
@@ -82,14 +81,6 @@ function normalize(d) {
   }
   for (const id in d.deleted || {}) { const t = Number(d.deleted[id]); if (/^[\w.~:@+-]{1,64}$/.test(id) && t > 0) out.deleted[id] = t; }
   return out;
-}
-
-async function same(a, b) {
-  const enc = new TextEncoder();
-  const [x, y] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(a)), crypto.subtle.digest("SHA-256", enc.encode(b))]);
-  const u = new Uint8Array(x), v = new Uint8Array(y); let d = 0;
-  for (let i = 0; i < u.length; i++) d |= u[i] ^ v[i];
-  return d === 0;
 }
 
 function json(data, status, cors) {

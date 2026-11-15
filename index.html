@@ -285,7 +285,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
         <input id="q" type="search" placeholder="搜书名、作者、感受" enterkeyhint="search" autocomplete="off">
         <button class="q-clear" id="q-clear" type="button" aria-label="清空搜索"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </label>
-      <button class="icon-btn sync" id="btn-sync" type="button" data-state="local" aria-label="云同步">
+      <button class="icon-btn sync" id="btn-sync" type="button" data-state="busy" aria-label="云同步">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 10.5 3.75 3.75 0 0 1 17.5 18Z"/></svg>
         <i class="dot"></i>
       </button>
@@ -353,7 +353,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
         <button id="m-restore" type="button">导入备份文件<span>读取之前导出的 JSON 备份，已有的书不会重复</span></button>
         <button id="m-json" type="button">导出备份（JSON）<span>完整数据，可以再导入回来</span></button>
         <button id="m-md" type="button">导出 Markdown<span>一张表格，适合存进笔记软件</span></button>
-        <button id="m-sync" type="button">云同步<span id="m-sync-sub">未开启，记录只在这台设备上</span></button>
+        <button id="m-sync" type="button">云同步<span id="m-sync-sub">自动存到云端</span></button>
       </div>
     </div>
     <div class="sheet-foot"><button class="btn text" data-close type="button">关闭</button></div>
@@ -381,15 +381,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sync-h">
     <div class="sheet-head"><div class="grip"></div><h2 id="sync-h">云同步</h2></div>
     <div class="sheet-body">
-      <p class="hint">记录先存在这台设备的浏览器里。填上同步口令后，会自动存到你自己的 Cloudflare，换手机、换电脑打开都在。</p>
+      <p class="hint">每次改动先存在这台设备的浏览器里，随后自动存到你自己的 Cloudflare。换手机、换电脑打开都是同一份；离线时照常能用，联网后补传。</p>
       <dl class="kv" id="sync-kv"></dl>
-      <label class="f">同步口令<input id="sync-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="部署时设置的那串口令"></label>
     </div>
     <div class="sheet-foot">
-      <button class="btn text danger" id="sync-off" type="button" hidden>在本机关闭</button>
-      <button class="btn text" id="sync-link" type="button" hidden>复制配置链接</button>
       <button class="btn text" data-close type="button">关闭</button>
-      <button class="btn primary" id="sync-save" type="button">保存并同步</button>
+      <button class="btn primary" id="sync-now" type="button">立即同步</button>
     </div>
   </div>
 </div>
@@ -400,7 +397,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 (() => {
   "use strict";
   const API = "https://reading-log.yuuteng.workers.dev";
-  const LS_DATA = "rl-data-v1", LS_KEY = "rl-key", LS_SORT = "rl-sort", LS_DIR = "rl-dir";
+  const LS_DATA = "rl-data-v1", LS_SORT = "rl-sort", LS_DIR = "rl-dir";
   const $ = (id) => document.getElementById(id);
   const RM = matchMedia("(prefers-reduced-motion: reduce)");
   const DESK = matchMedia("(min-width: 820px)");
@@ -894,22 +891,20 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   $("file-in").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; closeSheet(); f.text().then(restore, () => toast("读不了这个文件。", { err: true })); };
 
   // ---------- cloud sync ----------
-  let key = lsGet(LS_KEY) || "", syncing = false, again = false, syncTimer = null, lastSync = 0, syncNote = "", initialPull = false;
+  let syncing = false, again = false, syncTimer = null, lastSync = 0, syncNote = "", initialPull = false;
   function setSync(s, note) {
     $("btn-sync").dataset.state = s; syncNote = note || "";
-    const label = { local: "云同步未开启", busy: "正在同步", ok: "已同步", err: "同步出错：" + syncNote }[s];
+    const label = { busy: "正在同步", ok: "已同步到云端", err: "同步出错：" + syncNote }[s];
     $("btn-sync").setAttribute("aria-label", label); $("btn-sync").title = label;
-    $("m-sync-sub").textContent = s === "local" ? "未开启，记录只在这台设备上" : s === "err" ? syncNote : "已开启";
+    $("m-sync-sub").textContent = s === "err" ? syncNote : "自动存到云端";
     if (curSheet && curSheet.id === "ov-sync") drawSync();
   }
-  function queueSync(delay) { if (!key) return; clearTimeout(syncTimer); syncTimer = setTimeout(sync, delay == null ? 900 : delay); }
+  function queueSync(delay) { clearTimeout(syncTimer); syncTimer = setTimeout(sync, delay == null ? 900 : delay); }
   async function sync() {
-    if (!key) return setSync("local");
     if (syncing) { again = true; return; }
     syncing = true; setSync("busy");
     try {
-      const res = await fetch(API + "/sync", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key }, body: JSON.stringify({ books: store.books, deleted: store.deleted }) });
-      if (res.status === 401 || res.status === 403) { setSync("err", "口令不对"); return; }
+      const res = await fetch(API + "/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ books: store.books, deleted: store.deleted }) });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const changed = mergeInto(store, await res.json());
       lastSync = Date.now(); const wasInitial = initialPull; initialPull = false;
@@ -922,23 +917,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   }
   function drawSync() {
     const kv = $("sync-kv"); kv.textContent = ""; const st = $("btn-sync").dataset.state;
-    const rows = [["状态", { local: "未开启", busy: "正在同步…", ok: "已同步", err: syncNote }[st]], ["本机记录", Object.keys(store.books).length + " 本"]];
+    const rows = [["状态", { busy: "正在同步…", ok: "已同步到云端", err: syncNote }[st]], ["本机记录", Object.keys(store.books).length + " 本"]];
     if (lastSync) rows.push(["上次同步", new Date(lastSync).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })]);
     rows.forEach(([k, v]) => kv.append(el("dt", null, k), el("dd", null, v)));
-    $("sync-off").hidden = $("sync-link").hidden = !key;
   }
-  function openSync() { $("sync-key").value = key; drawSync(); openSheet("ov-sync"); }
-  $("sync-save").onclick = () => {
-    const v = $("sync-key").value.trim(); if (!v) { $("sync-key").focus(); return; }
-    key = v; lsSet(LS_KEY, key); sync().then(() => { if ($("btn-sync").dataset.state === "ok") { closeSheet(); toast("云同步已开启"); } });
-  };
-  $("sync-off").onclick = () => { key = ""; lsSet(LS_KEY, null); $("sync-key").value = ""; setSync("local"); toast("已在本机关闭同步，本机记录保留"); };
-  $("sync-link").onclick = () => {
-    const link = location.origin + location.pathname + "#k=" + encodeURIComponent(key);
-    navigator.clipboard.writeText(link).then(() => toast("已复制。在另一台设备打开这个链接就配好了"), () => toast("复制失败，请手动填口令。", { err: true }));
-  };
-  const hk = location.hash.match(/[#&]k=([^&]+)/);
-  if (hk) { key = decodeURIComponent(hk[1]); lsSet(LS_KEY, key); history.replaceState(null, "", location.pathname + location.search); }
+  function openSync() { drawSync(); openSheet("ov-sync"); }
+  $("sync-now").onclick = () => sync();
+  if (/[#&]k=/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); // old setup links carried a passphrase; no longer used
+  lsSet("rl-key", null);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastSync > 20000) queueSync(0); });
   window.addEventListener("online", () => queueSync(0));
   setInterval(() => { if (!document.hidden) queueSync(0); }, 120000);
@@ -970,9 +956,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   }, { passive: true });
 
   // ---------- start ----------
-  initialPull = !!key && !Object.keys(store.books).length;
+  initialPull = !Object.keys(store.books).length;
   render();
-  if (key) { sync(); if (hk) toast("已连接云同步"); } else setSync("local");
+  sync();
 })();
 </script>
 </body>
