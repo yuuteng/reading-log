@@ -95,7 +95,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 #btn-sort svg { width: 12px; height: 12px; color: var(--muted); }
 #btn-dir svg { width: 16px; height: 16px; transition: rotate .32s var(--ease); }
 #btn-dir.asc svg { rotate: 180deg; }
-.chips { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 16px 2px 2px; margin-right: -16px; mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.chipwrap { flex: 1; min-width: 0; position: relative; display: flex; margin-right: -16px; }
+.chips { --fade: linear-gradient(90deg, transparent, #000 var(--ml, 0px), #000 calc(100% - var(--mr, 0px)), transparent); flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 16px 2px 2px; mask-image: var(--fade); -webkit-mask-image: var(--fade); }
+.can-l .chips { --ml: 30px; } .can-r .chips { --mr: 30px; }
+.chip-nav { position: absolute; top: 50%; translate: 0 -50%; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: none; place-items: center; opacity: 0; scale: .7; pointer-events: none; transition: opacity .2s, scale .25s var(--ease); }
+.chip-nav svg { width: 14px; height: 14px; }
+.chip-nav.prev { left: 0; } .chip-nav.next { right: 0; }
+.chip-nav.prev svg { rotate: 180deg; }
 .chips::-webkit-scrollbar { display: none; }
 .chip { flex: none; height: 30px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 0 12px; font-size: 13px; white-space: nowrap; transition: background-color .22s, color .22s, border-color .22s, transform .16s var(--ease); }
 .chip i { font-style: normal; opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
@@ -231,7 +237,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   .dock-row.main { grid-column: 1; }
   .desk { display: inline-flex; align-items: center; }
   .fab { display: none; }
-  .chips { margin-right: 0; padding-right: 28px; }
+  .chipwrap { margin-right: 0; }
+  .chips { padding-right: 2px; }
+  .chip-nav { display: grid; }
+  .can-l .chip-nav.prev, .can-r .chip-nav.next { opacity: 1; scale: 1; pointer-events: auto; }
+  .chip-nav:active { scale: .9; }
   .thead, .row { display: grid; grid-template-columns: var(--cols); gap: 0 16px; align-items: start; }
   .thead { position: sticky; top: calc(var(--safe-t) + var(--dock-h, 60px)); z-index: calc(var(--z-sticky) - 1); background: var(--bg); padding: 12px 8px 9px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
   .thead button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: color .2s; }
@@ -242,14 +252,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   .thead button.on svg { opacity: 1; }
   .thead button.on.asc svg { rotate: 180deg; }
   .group { padding-top: 20px; }
-  .row { padding: 12px 8px; }
+  .row { padding: 12px 8px; align-items: center; }
+  .row.open { align-items: start; }
   .row:hover { background: color-mix(in srgb, var(--blush) 45%, transparent); }
   .row.open { background: var(--blush); border-radius: 12px; }
-  .c-no { display: block; grid-column: 1; color: var(--muted); font-size: 13px; padding-top: 2px; font-variant-numeric: tabular-nums; }
+  .c-no { display: block; grid-column: 1; color: var(--muted); font-size: 13px; line-height: 21.75px; font-variant-numeric: tabular-nums; }
   .c-title { grid-column: 2; font-size: 15px; }
   .c-author { display: block; grid-column: 3; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .c-cast { display: block; grid-column: 4; font-size: 14px; overflow-wrap: anywhere; }
-  .c-rate { grid-column: 5; grid-row: 1; align-self: start; line-height: 21.75px; }
+  .c-rate { grid-column: 5; grid-row: 1; align-self: auto; line-height: 21.75px; }
   .c-meta { display: none; }
   .c-th { grid-column: 6; grid-row: 1; -webkit-line-clamp: 2; line-clamp: 2; }
   .row.open .c-th { padding-top: 0; }
@@ -298,7 +309,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
         <button id="btn-sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label">读完时间</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
         <button id="btn-dir" type="button" aria-label="切换升序降序"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
       </div>
-      <div class="chips" id="chips" aria-label="按标签筛选"></div>
+      <div class="chipwrap" id="chipwrap">
+        <div class="chips" id="chips" aria-label="按标签筛选"></div>
+        <button class="chip-nav prev" id="chip-prev" type="button" aria-label="向左看更多标签" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+        <button class="chip-nav next" id="chip-next" type="button" aria-label="向右看更多标签" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+      </div>
       <button class="btn primary sm desk" id="btn-add-d" type="button">＋ 记一本</button>
     </div>
   </div>
@@ -941,7 +956,18 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   $("m-json").onclick = exportJson;
   $("m-md").onclick = exportMd;
   $("m-sync").onclick = openSync;
-  $("chips").addEventListener("wheel", (e) => { if (!e.deltaX && e.deltaY) { e.preventDefault(); $("chips").scrollLeft += e.deltaY; } }, { passive: false });
+  // tag strip: edge fades and arrow buttons show only where there is more to see; wheel and mouse-drag scroll it too
+  const chipsEl = $("chips");
+  const chipNav = () => { const max = chipsEl.scrollWidth - chipsEl.clientWidth, x = chipsEl.scrollLeft; $("chipwrap").classList.toggle("can-l", x > 4); $("chipwrap").classList.toggle("can-r", x < max - 4); };
+  chipsEl.addEventListener("scroll", chipNav, { passive: true });
+  new ResizeObserver(chipNav).observe(chipsEl); new MutationObserver(chipNav).observe(chipsEl, { childList: true });
+  const chipStep = (d) => chipsEl.scrollBy({ left: d * Math.max(160, chipsEl.clientWidth * .7), behavior: RM.matches ? "auto" : "smooth" });
+  $("chip-prev").onclick = () => chipStep(-1); $("chip-next").onclick = () => chipStep(1);
+  chipsEl.addEventListener("wheel", (e) => { if (!e.deltaX && e.deltaY && chipsEl.scrollWidth > chipsEl.clientWidth) { e.preventDefault(); chipsEl.scrollLeft += e.deltaY; } }, { passive: false });
+  let chipDrag = null;
+  chipsEl.addEventListener("pointerdown", (e) => { if (e.pointerType === "mouse" && e.button === 0) chipDrag = { x: e.clientX, left: chipsEl.scrollLeft, moved: false }; });
+  window.addEventListener("pointermove", (e) => { if (!chipDrag) return; const dx = e.clientX - chipDrag.x; if (Math.abs(dx) > 5) chipDrag.moved = true; if (chipDrag.moved) chipsEl.scrollLeft = chipDrag.left - dx; });
+  window.addEventListener("pointerup", () => { if (chipDrag && chipDrag.moved) chipsEl.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); }, { capture: true, once: true }); chipDrag = null; });
 
   // dock: hairline once stuck; column header sits right under it
   new IntersectionObserver(([en]) => $("dock").classList.toggle("stuck", !en.isIntersecting && en.boundingClientRect.top < 60), { rootMargin: "-1px 0px 0px 0px", threshold: 0 }).observe($("sentinel"));
