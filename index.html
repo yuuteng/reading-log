@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>读书札记</title>
+<meta name="description" content="读完的书，一本一行：书名、作者、主角、评分和读后感。">
+<meta name="theme-color" content="#FBF6F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1D1619" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="读书札记">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&display=swap">
+<style>
+/* Layout: a hero title that scrolls away, then one sticky dock (search, sort, tag filter) over a ledger of books.
+   Phone: two-line rows that unfold in place. Desktop (820px+): the same rows laid out as table columns. */
+:root {
+  --bg: #FBF6F4; --surface: #FFFFFF; --ink: #33232B; --muted: #76606B; --line: #EEDDE1;
+  --rose: #B8436B; --rose-ink: #FFFFFF; --blush: #FBE7ED; --star: #D9708C; --danger: #AE3A33; --ok: #3C8A62;
+  --scrim: rgba(40, 18, 28, .42);
+  --shadow: 0 12px 34px rgba(120, 60, 85, .16), 0 2px 6px rgba(120, 60, 85, .08);
+  --f-display: "ZCOOL XiaoWei", "Songti SC", "STSong", serif;
+  --f-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --ease-sheet: cubic-bezier(.32, .72, 0, 1);
+  --z-sticky: 10; --z-fab: 20; --z-pop: 30; --z-sheet: 40; --z-toast: 50;
+  --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
+  --cols: 40px minmax(200px, 1.7fr) minmax(90px, .8fr) minmax(110px, 1fr) 84px minmax(180px, 2fr);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1D1619; --surface: #281E23; --ink: #F3E6EA; --muted: #BBA5AF; --line: #3B2C33;
+    --rose: #EE8FAE; --rose-ink: #2A1219; --blush: #3A2530; --star: #F0A0B6; --danger: #F08A80; --ok: #7FCFA4;
+    --scrim: rgba(0, 0, 0, .58);
+    --shadow: 0 12px 34px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
+    color-scheme: dark;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+* { -webkit-tap-highlight-color: transparent; }
+html { scrollbar-gutter: stable; -webkit-text-size-adjust: 100%; }
+html.locked { overflow: hidden; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--f-body); padding-top: var(--safe-t); min-height: 100dvh; }
+[hidden] { display: none !important; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px calc(120px + var(--safe-b)); }
+
+/* hero: big title, scrolls away */
+.hero { padding: 22px 0 10px; transform-origin: left bottom; }
+h1 { font: 400 34px/1.2 var(--f-display); letter-spacing: .06em; margin: 0; }
+.stats { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--muted); }
+.stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) {
+  .hero { opacity: calc(1 - var(--p, 0)); transform: translateY(calc(var(--p, 0) * -8px)) scale(calc(1 - var(--p, 0) * .04)); }
+}
+
+/* dock: sticky search + sort + tags */
+.dock-sentinel { height: 1px; margin-bottom: -1px; }
+.dock { position: sticky; top: var(--safe-t); z-index: var(--z-sticky); margin-inline: -16px; padding: 8px 16px 10px; display: grid; gap: 10px; background: var(--bg); border-bottom: 1px solid transparent; transition: border-color .25s, box-shadow .25s; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe-t); background: var(--bg); z-index: var(--z-sticky); } /* keeps the notch strip opaque so rows never show above the stuck dock */
+.dock.stuck { border-bottom-color: var(--line); box-shadow: 0 8px 20px -18px rgba(90, 40, 60, .55); }
+.dock-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.search { position: relative; flex: 1; min-width: 0; }
+.search svg { position: absolute; left: 13px; top: 50%; translate: 0 -50%; width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
+.search input { width: 100%; height: 42px; padding: 0 40px 0 38px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; transition: border-color .2s, box-shadow .2s; appearance: none; -webkit-appearance: none; }
+.search input::placeholder { color: var(--muted); }
+.search input::-webkit-search-cancel-button { display: none; }
+.search input:focus { outline: none; border-color: var(--rose); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rose) 18%, transparent); }
+.q-clear { position: absolute; right: 5px; top: 50%; translate: 0 -50%; width: 32px; height: 32px; border: none; background: none; border-radius: 50%; color: var(--muted); display: grid; place-items: center; opacity: 0; scale: .6; pointer-events: none; transition: opacity .18s, scale .18s var(--ease); }
+.q-clear.on { opacity: 1; scale: 1; pointer-events: auto; }
+.q-clear svg { position: static; translate: none; width: 16px; height: 16px; }
+.icon-btn { flex: none; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; padding: 0; position: relative; transition: transform .16s var(--ease), background-color .2s; }
+.icon-btn svg { width: 19px; height: 19px; }
+.icon-btn:active, .btn:active, .chip:active, .sortgrp button:active { transform: scale(.94); }
+.sync .dot { position: absolute; right: 8px; bottom: 9px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); background: var(--muted); transition: background-color .3s; }
+.sync[data-state="ok"] .dot { background: var(--ok); }
+.sync[data-state="err"] .dot { background: var(--danger); }
+.sync[data-state="busy"] .dot { background: var(--rose); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.5); opacity: .45; } }
+
+.sortgrp { flex: none; display: flex; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.sortgrp button { border: none; background: none; height: 34px; display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; transition: transform .16s var(--ease); }
+#btn-sort { padding: 0 6px 0 13px; border-radius: 999px 0 0 999px; }
+#btn-dir { padding: 0 11px 0 6px; border-radius: 0 999px 999px 0; color: var(--rose); }
+#btn-sort svg { width: 12px; height: 12px; color: var(--muted); }
+#btn-dir svg { width: 16px; height: 16px; transition: rotate .32s var(--ease); }
+#btn-dir.asc svg { rotate: 180deg; }
+.chips { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 16px 2px 2px; margin-right: -16px; mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; height: 30px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 0 12px; font-size: 13px; white-space: nowrap; transition: background-color .22s, color .22s, border-color .22s, transform .16s var(--ease); }
+.chip i { font-style: normal; opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.chip.on { background: var(--rose); border-color: var(--rose); color: var(--rose-ink); font-weight: 600; }
+
+/* buttons */
+.btn { border-radius: 999px; padding: 0 18px; min-height: 44px; border: 1px solid var(--line); background: var(--surface); font-size: 15px; transition: transform .16s var(--ease), background-color .2s, opacity .2s; white-space: nowrap; }
+.btn.primary { background: var(--rose); border-color: var(--rose); color: var(--rose-ink); font-weight: 600; }
+.btn.text { border-color: transparent; background: transparent; color: var(--muted); padding-inline: 12px; }
+.btn.danger { color: var(--danger); }
+.btn.sm { min-height: 36px; font-size: 14px; padding-inline: 14px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.desk { display: none; }
+
+/* ledger */
+.thead { display: none; }
+.group { display: flex; gap: 8px; align-items: baseline; padding: 18px 4px 4px; font-size: 12px; color: var(--muted); }
+.group b { color: var(--rose); font-size: 15px; font-variant-numeric: tabular-nums; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; padding: 12px 8px; border-bottom: 1px solid var(--line); border-radius: 0; cursor: pointer; transition: background-color .3s, border-color .3s, border-radius .3s; }
+.row.open { background: var(--blush); border-bottom-color: transparent; border-radius: 14px; }
+.c-no, .c-author, .c-cast { display: none; }
+.c-title { all: unset; cursor: pointer; grid-column: 1; font-weight: 600; font-size: 16px; line-height: 1.45; overflow-wrap: anywhere; min-width: 0; padding-left: 1em; text-indent: -1em; margin-left: -.5em; text-wrap: balance; line-break: strict; }
+.c-title:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; border-radius: 6px; }
+.c-rate { grid-column: 2; grid-row: 1; align-self: center; }
+.c-meta { grid-column: 1 / -1; font-size: 13px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-meta .sep { margin-inline: 6px; opacity: .5; }
+.c-meta .who { color: var(--ink); }
+.c-th { grid-column: 1 / -1; font-size: 14px; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; opacity: .86; overflow-wrap: anywhere; }
+.c-th:empty { display: none; }
+.row.open .c-meta { white-space: normal; }
+.row.open .c-th { display: block; white-space: pre-wrap; opacity: 1; line-height: 1.75; padding-top: 6px; max-width: 70ch; -webkit-user-select: text; user-select: text; cursor: text; }
+.row.open .c-th:empty { display: block; }
+.row.open .c-th:empty::before { content: "还没写感受"; color: var(--muted); }
+.extra { grid-column: 1 / -1; display: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-top: 10px; }
+.row.open .extra { display: flex; }
+.extra .tags { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+.tag { font-size: 12px; padding: 1px 9px; border-radius: 999px; background: var(--surface); color: var(--rose); border: none; white-space: nowrap; line-height: 20px; }
+.extra .acts { display: flex; gap: 6px; margin-left: auto; }
+.stars { color: var(--star); font-size: 13px; letter-spacing: 1px; white-space: nowrap; }
+.stars .off { color: var(--line); }
+@media (prefers-reduced-motion: no-preference) {
+  .row.open .extra, .row.open .c-th { animation: rise .34s var(--ease) both; }
+  .row.closing .extra, .row.closing .c-th { animation: none; opacity: 0; transition: opacity .14s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+}
+
+.empty { padding: 56px 8px; text-align: center; color: var(--muted); }
+.empty h2 { font: 400 22px/1.3 var(--f-display); color: var(--ink); margin: 0 0 6px; }
+.empty p { margin: 0 auto; max-width: 30em; }
+.empty .btns { display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+.skel { height: 58px; border-bottom: 1px solid var(--line); display: grid; align-content: center; gap: 8px; padding-inline: 8px; }
+.skel i { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--line) 25%, color-mix(in srgb, var(--line) 45%, var(--bg)) 50%, var(--line) 75%) 0 0 / 200% 100%; animation: shimmer 1.3s linear infinite; }
+.skel i:first-child { width: 46%; } .skel i:last-child { width: 72%; height: 10px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* floating add button */
+.fab { position: fixed; right: 18px; bottom: calc(18px + var(--safe-b)); width: 58px; height: 58px; border-radius: 50%; border: none; background: var(--rose); color: var(--rose-ink); box-shadow: var(--shadow); display: grid; place-items: center; z-index: var(--z-fab); transition: transform .38s var(--ease), opacity .25s; }
+.fab svg { width: 26px; height: 26px; transition: rotate .38s var(--ease); }
+.fab:active { transform: scale(.9); }
+.fab.away { transform: translateY(90px) scale(.8); opacity: 0; pointer-events: none; }
+
+/* sort popover */
+.pop { position: fixed; z-index: var(--z-pop); min-width: 190px; padding: 6px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); transform-origin: 20px 0; opacity: 0; transform: scale(.86); pointer-events: none; transition: opacity .16s, transform .2s var(--ease); }
+.pop.in { opacity: 1; transform: none; pointer-events: auto; transition: opacity .2s, transform .3s var(--ease); }
+.pop button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: none; background: none; padding: 10px 12px; border-radius: 10px; font-size: 15px; text-align: left; transition: background-color .15s; }
+.pop button:hover, .pop button:focus-visible { background: var(--blush); }
+.pop button svg { width: 16px; height: 16px; color: var(--rose); opacity: 0; scale: .5; transition: opacity .18s, scale .25s var(--ease); }
+.pop button.on { font-weight: 600; }
+.pop button.on svg { opacity: 1; scale: 1; }
+.pop small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+
+/* sheets */
+.ov { position: fixed; inset: 0; z-index: var(--z-sheet); display: flex; align-items: flex-end; justify-content: center; padding-bottom: var(--kb, 0px); background: transparent; transition: background-color .28s; }
+.ov.in { background: var(--scrim); }
+.sheet { background: var(--surface); width: 100%; max-width: 560px; max-height: calc(100dvh - var(--kb, 0px) - var(--safe-t) - 18px); display: flex; flex-direction: column; border-radius: 24px 24px 0 0; box-shadow: var(--shadow); transform: translateY(105%); transition: transform .28s cubic-bezier(.4, 0, 1, 1); will-change: transform; }
+.ov.in .sheet { transform: none; transition: transform .46s var(--ease-sheet); }
+.sheet.dragging { transition: none !important; }
+.sheet-head { flex: none; padding: 8px 20px 4px; touch-action: none; cursor: grab; }
+.grip { width: 38px; height: 5px; border-radius: 5px; background: var(--line); margin: 0 auto 10px; }
+.sheet-head h2 { font: 400 23px/1.3 var(--f-display); margin: 0; overflow-wrap: anywhere; }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 20px 4px; display: grid; gap: 14px; align-content: start; }
+.sheet-foot { flex: none; display: flex; gap: 8px; justify-content: flex-end; align-items: center; padding: 10px 20px calc(14px + var(--safe-b)); border-top: 1px solid transparent; }
+.ov[style*="--kb"] .sheet-foot { padding-bottom: 12px; }
+.sheet-foot .note { margin-right: auto; font-size: 13px; color: var(--danger); }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 10px; }
+.fields .full { grid-column: 1 / -1; }
+.f { display: grid; gap: 5px; font-size: 13px; color: var(--muted); min-width: 0; }
+.f input, .f textarea, .area { width: 100%; min-width: 0; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; transition: border-color .2s, box-shadow .2s, background-color .2s; appearance: none; -webkit-appearance: none; }
+.f input { height: 46px; }
+.f input[type="date"] { display: block; text-align: left; }
+.f textarea, .area { resize: vertical; line-height: 1.7; min-height: 120px; display: block; }
+.f input:focus, .f textarea:focus, .area:focus { outline: none; border-color: var(--rose); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rose) 18%, transparent); }
+.f .err { color: var(--danger); min-height: 0; }
+.f .err:empty { display: none; }
+.f.bad input { border-color: var(--danger); }
+.stars-in { display: flex; align-items: center; }
+.stars-in .s { border: none; background: none; width: 44px; height: 44px; font-size: 27px; line-height: 1; color: var(--line); padding: 0; transition: color .2s, transform .28s var(--ease); transition-delay: calc(var(--i) * 28ms); }
+.stars-in .s.on { color: var(--star); transform: scale(1.12); }
+.stars-in .s:active { transform: scale(.85); transition-delay: 0s; }
+.menu { display: grid; }
+.menu button { text-align: left; border: none; background: none; padding: 13px 4px; border-bottom: 1px solid var(--line); font-size: 16px; display: grid; gap: 1px; transition: background-color .15s; }
+.menu button:last-child { border-bottom: none; }
+.menu button:active { background: var(--blush); }
+.menu button span { font-size: 12.5px; color: var(--muted); }
+.preview { display: grid; gap: 6px; }
+.pv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); cursor: pointer; }
+.pv input { width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--rose); }
+.pv .t { font-weight: 600; overflow-wrap: anywhere; }
+.pv .m, .pv .x { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: 14px; margin: 0; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) {
+  .pv { animation: rise .32s var(--ease) both; animation-delay: calc(min(var(--i, 0), 10) * 30ms); }
+  .shake { animation: shake .36s var(--ease); }
+  @keyframes shake { 20% { transform: translateX(-7px); } 45% { transform: translateX(6px); } 70% { transform: translateX(-3px); } }
+}
+
+/* toast */
+.toast { position: fixed; left: 50%; bottom: calc(90px + var(--safe-b) + var(--kb, 0px)); z-index: var(--z-toast); max-width: min(92vw, 460px); display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 18px; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: 14px; box-shadow: var(--shadow); opacity: 0; transform: translate(-50%, 24px) scale(.94); pointer-events: none; transition: opacity .2s, transform .22s cubic-bezier(.4, 0, 1, 1); }
+.toast.in { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; transition: opacity .25s, transform .42s var(--ease); }
+.toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 6px; }
+.toast.err { background: var(--danger); color: #fff; }
+.toast button { flex: none; border: none; background: color-mix(in srgb, var(--bg) 16%, transparent); color: inherit; font-weight: 600; font-size: 14px; border-radius: 999px; padding: 5px 14px; }
+
+/* desktop: real columns */
+@media (min-width: 820px) {
+  .wrap { padding-inline: 32px; }
+  .hero { padding-top: 34px; }
+  h1 { font-size: 40px; }
+  .dock { margin-inline: -32px; padding-inline: 32px; grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); align-items: center; column-gap: 14px; }
+  .dock-row.tools { grid-column: 2; grid-row: 1; }
+  .dock-row.main { grid-column: 1; }
+  .desk { display: inline-flex; align-items: center; }
+  .fab { display: none; }
+  .chips { margin-right: 0; padding-right: 28px; }
+  .thead, .row { display: grid; grid-template-columns: var(--cols); gap: 0 16px; align-items: start; }
+  .thead { position: sticky; top: calc(var(--safe-t) + var(--dock-h, 60px)); z-index: calc(var(--z-sticky) - 1); background: var(--bg); padding: 12px 8px 9px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .thead button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: color .2s; }
+  .thead button:hover { color: var(--ink); }
+  .thead button:focus-visible { outline: 2px solid var(--rose); outline-offset: 3px; border-radius: 4px; }
+  .thead button.on { color: var(--rose); font-weight: 700; }
+  .thead button svg { width: 13px; height: 13px; opacity: 0; transition: opacity .2s, rotate .32s var(--ease); }
+  .thead button.on svg { opacity: 1; }
+  .thead button.on.asc svg { rotate: 180deg; }
+  .group { padding-top: 20px; }
+  .row { padding: 12px 8px; }
+  .row:hover { background: color-mix(in srgb, var(--blush) 45%, transparent); }
+  .row.open { background: var(--blush); border-radius: 12px; }
+  .c-no { display: block; grid-column: 1; color: var(--muted); font-size: 13px; padding-top: 2px; font-variant-numeric: tabular-nums; }
+  .c-title { grid-column: 2; font-size: 15px; }
+  .c-author { display: block; grid-column: 3; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+  .c-cast { display: block; grid-column: 4; font-size: 14px; overflow-wrap: anywhere; }
+  .c-rate { grid-column: 5; grid-row: 1; align-self: start; line-height: 21.75px; }
+  .c-meta { display: none; }
+  .c-th { grid-column: 6; grid-row: 1; -webkit-line-clamp: 2; line-clamp: 2; }
+  .row.open .c-th { padding-top: 0; }
+  .extra { grid-column: 2 / -1; }
+  .ov { align-items: center; padding: 24px; }
+  .sheet { border-radius: 22px; max-height: min(86dvh, 760px); transform: translateY(18px) scale(.96); opacity: 0; transition: transform .2s cubic-bezier(.4, 0, 1, 1), opacity .18s; }
+  .ov.in .sheet { opacity: 1; transition: transform .4s var(--ease), opacity .22s; }
+  .sheet-head { padding: 22px 26px 4px; cursor: default; touch-action: auto; }
+  .grip { display: none; }
+  .sheet-body { padding-inline: 26px; }
+  .sheet-foot { padding: 14px 26px 20px; }
+  .toast { bottom: 32px; }
+}
+@media (hover: none) { .row:hover { background: none; } .row.open:hover { background: var(--blush); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="hero" id="hero">
+    <h1>读书札记</h1>
+    <p class="stats" id="stats"></p>
+  </header>
+
+  <div class="dock-sentinel" id="sentinel"></div>
+  <div class="dock" id="dock">
+    <div class="dock-row main">
+      <label class="search">
+        <span class="sr">搜索</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="搜书名、作者、感受" enterkeyhint="search" autocomplete="off">
+        <button class="q-clear" id="q-clear" type="button" aria-label="清空搜索"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </label>
+      <button class="icon-btn sync" id="btn-sync" type="button" data-state="local" aria-label="云同步">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 10.5 3.75 3.75 0 0 1 17.5 18Z"/></svg>
+        <i class="dot"></i>
+      </button>
+      <button class="icon-btn" id="btn-more" type="button" aria-label="导入、导出和设置">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
+      </button>
+    </div>
+    <div class="dock-row tools">
+      <div class="sortgrp">
+        <button id="btn-sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label">读完时间</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button id="btn-dir" type="button" aria-label="切换升序降序"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+      </div>
+      <div class="chips" id="chips" aria-label="按标签筛选"></div>
+      <button class="btn primary sm desk" id="btn-add-d" type="button">＋ 记一本</button>
+    </div>
+  </div>
+
+  <div class="thead" id="thead">
+    <span>#</span>
+    <button type="button" data-sort="title">书名</button>
+    <button type="button" data-sort="author">作者</button>
+    <span>主角</span>
+    <button type="button" data-sort="rating">评分</button>
+    <span>感受</span>
+  </div>
+  <div id="rows"></div>
+</main>
+
+<button class="fab" id="fab" type="button" aria-label="记一本新书"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+
+<div class="pop" id="sort-pop" role="menu" aria-label="排序方式"></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-msg"></span><button id="toast-act" type="button" hidden></button></div>
+
+<div class="ov" id="ov-form" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="form-title">
+    <div class="sheet-head"><div class="grip"></div><h2 id="form-title">记一本新书</h2></div>
+    <div class="sheet-body">
+      <div class="fields">
+        <label class="f full" id="f-title-wrap">书名<input id="f-title" autocomplete="off" enterkeyhint="next"><span class="err" id="f-title-err"></span></label>
+        <label class="f">作者<input id="f-author" autocomplete="off" enterkeyhint="next"></label>
+        <label class="f">读完日期<input id="f-date" type="date"></label>
+        <label class="f full">主角（空格分隔）<input id="f-cast" autocomplete="off" placeholder="主角A 主角B" enterkeyhint="next"></label>
+        <label class="f full">标签（空格分隔）<input id="f-tags" autocomplete="off" placeholder="短篇 甜文" enterkeyhint="next"></label>
+      </div>
+      <div class="f"><span id="f-stars-l">评分</span>
+        <div class="stars-in" role="group" aria-labelledby="f-stars-l"><div id="f-stars" style="display:flex"></div><button class="btn text sm" id="f-stars-clear" type="button">不评分</button></div>
+      </div>
+      <label class="f">读后感<textarea id="f-thoughts" rows="6" placeholder="读完的感受、喜欢的情节…"></textarea></label>
+    </div>
+    <div class="sheet-foot" id="form-foot">
+      <span class="note" id="f-note" hidden>改动还没保存</span>
+      <button class="btn text" id="f-cancel" type="button">取消</button>
+      <button class="btn primary" id="f-save" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="ov-menu" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="menu-h">
+    <div class="sheet-head"><div class="grip"></div><h2 id="menu-h">更多</h2></div>
+    <div class="sheet-body">
+      <div class="menu">
+        <button id="m-memo" type="button">从备忘录导入<span>粘贴 iPhone 备忘录里的记录，自动拆成一本一本</span></button>
+        <button id="m-restore" type="button">导入备份文件<span>读取之前导出的 JSON 备份，已有的书不会重复</span></button>
+        <button id="m-json" type="button">导出备份（JSON）<span>完整数据，可以再导入回来</span></button>
+        <button id="m-md" type="button">导出 Markdown<span>一张表格，适合存进笔记软件</span></button>
+        <button id="m-sync" type="button">云同步<span id="m-sync-sub">未开启，记录只在这台设备上</span></button>
+      </div>
+    </div>
+    <div class="sheet-foot"><button class="btn text" data-close type="button">关闭</button></div>
+  </div>
+</div>
+
+<div class="ov" id="ov-import" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="imp-h">
+    <div class="sheet-head"><div class="grip"></div><h2 id="imp-h">从备忘录导入</h2></div>
+    <div class="sheet-body">
+      <p class="hint">在备忘录里全选、复制，粘贴到下面。带《书名号》的最好认；没有书名号时，按空行分段，每段第一行当书名。</p>
+      <textarea class="area" id="imp-text" rows="7" placeholder="《书名》作者&#10;读后感……" aria-label="备忘录内容"></textarea>
+      <p class="hint" id="imp-status" role="status"></p>
+      <div class="preview" id="imp-preview"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn text" data-close type="button">取消</button>
+      <button class="btn" id="imp-parse" type="button">识别</button>
+      <button class="btn primary" id="imp-save" type="button" hidden>导入</button>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="ov-sync" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sync-h">
+    <div class="sheet-head"><div class="grip"></div><h2 id="sync-h">云同步</h2></div>
+    <div class="sheet-body">
+      <p class="hint">记录先存在这台设备的浏览器里。填上同步口令后，会自动存到你自己的 Cloudflare，换手机、换电脑打开都在。</p>
+      <dl class="kv" id="sync-kv"></dl>
+      <label class="f">同步口令<input id="sync-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="部署时设置的那串口令"></label>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn text danger" id="sync-off" type="button" hidden>在本机关闭</button>
+      <button class="btn text" id="sync-link" type="button" hidden>复制配置链接</button>
+      <button class="btn text" data-close type="button">关闭</button>
+      <button class="btn primary" id="sync-save" type="button">保存并同步</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-in" accept="application/json,.json" hidden>
+
+<script>
+(() => {
+  "use strict";
+  const API = "https://reading-log.yuuteng.workers.dev";
+  const LS_DATA = "rl-data-v1", LS_KEY = "rl-key", LS_SORT = "rl-sort", LS_DIR = "rl-dir";
+  const $ = (id) => document.getElementById(id);
+  const RM = matchMedia("(prefers-reduced-motion: reduce)");
+  const DESK = matchMedia("(min-width: 820px)");
+  const EASE = "cubic-bezier(.22,1,.36,1)";
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); return true; } catch (e) { return false; } };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const pad = (n) => String(n).padStart(2, "0");
+  const today = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+
+  // ---------- store: local first, merged with the cloud ----------
+  const store = { books: {}, deleted: {} };
+  try { const d = JSON.parse(lsGet(LS_DATA) || "null"); if (d && d.books) { store.books = d.books; store.deleted = d.deleted || {}; } } catch (e) {}
+  let quotaWarned = false;
+  function saveStore() {
+    if (!lsSet(LS_DATA, JSON.stringify(store)) && !quotaWarned) { quotaWarned = true; toast("这台设备存不下了，请先导出备份。", { err: true }); }
+  }
+  // Per-book last-write-wins; a tombstone beats any version that is not newer than it. Same function runs in the Worker.
+  function mergeInto(dst, src) {
+    let ch = false; const sb = src.books || {}, sd = src.deleted || {};
+    for (const id in sd) if (!(dst.deleted[id] >= sd[id])) { dst.deleted[id] = sd[id]; ch = true; }
+    for (const id in sb) { const l = dst.books[id], r = sb[id]; if (!l || (r.updatedAt || 0) > (l.updatedAt || 0)) { dst.books[id] = r; ch = true; } }
+    for (const id in dst.deleted) { const b = dst.books[id]; if (!b) continue; if (dst.deleted[id] >= (b.updatedAt || 0)) { delete dst.books[id]; ch = true; } else delete dst.deleted[id]; }
+    return ch;
+  }
+  const books = () => Object.keys(store.books).map(id => ({ id, ...store.books[id] }));
+
+  const splitTags = (s) => String(s || "").split(/[,，、\s]+/).map(t => t.trim()).filter(Boolean).slice(0, 12);
+  const clampRating = (r) => Math.max(0, Math.min(5, Math.round(Number(r) || 0)));
+  function normDate(s) {
+    const m = String(s || "").match(/(\d{4})\s*[.\-/年]\s*(\d{1,2})(?:\s*[.\-/月]\s*(\d{1,2}))?/);
+    return m ? m[1] + "-" + m[2].padStart(2, "0") + "-" + (m[3] || "1").padStart(2, "0") : "";
+  }
+  function clean(b) {
+    return {
+      title: String(b.title || "").trim().slice(0, 200),
+      author: String(b.author || "").trim().slice(0, 120),
+      cast: (Array.isArray(b.cast) ? b.cast.map(String) : String(b.cast || "").split(/[\s,，、×/]+/)).map(x => x.trim()).filter(Boolean).slice(0, 8),
+      finished: normDate(b.finished),
+      rating: clampRating(b.rating),
+      tags: Array.isArray(b.tags) ? b.tags.map(String).map(s => s.trim()).filter(Boolean).slice(0, 12) : splitTags(b.tags),
+      thoughts: String(b.thoughts || "").trim().slice(0, 50000),
+    };
+  }
+
+  // ---------- view state ----------
+  const SORTS = [["date", "读完时间", "desc", "没记日期的排最后"], ["added", "录入时间", "desc", ""], ["rating", "评分", "desc", "没评分的排最后"], ["title", "书名", "asc", ""], ["author", "作者", "asc", "没填作者的排最后"]];
+  const defDir = (k) => (SORTS.find(x => x[0] === k) || SORTS[0])[2];
+  const state = { q: "", tag: "", sort: lsGet(LS_SORT) || "date", dir: "", open: null, editing: null, rating: 0, parsed: [], firstPaint: true };
+  if (!SORTS.some(x => x[0] === state.sort)) state.sort = "date";
+  state.dir = lsGet(LS_DIR); if (state.dir !== "asc" && state.dir !== "desc") state.dir = defDir(state.sort);
+
+  function filtered() {
+    const q = state.q.trim().toLowerCase();
+    let list = books();
+    if (state.tag) list = list.filter(b => (b.tags || []).includes(state.tag));
+    if (q) list = list.filter(b => [b.title, b.author, (b.cast || []).join(" "), b.thoughts, (b.tags || []).join(" ")].join(" ").toLowerCase().includes(q));
+    const sg = state.dir === "asc" ? 1 : -1;
+    const zh = (a, b) => a.localeCompare(b, "zh-Hans-CN");
+    const added = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
+    const recent = (a, b) => (b.finished || "").localeCompare(a.finished || "") || added(b, a);
+    const by = {
+      date: (a, b) => (!a.finished - !b.finished) || sg * (a.finished || "").localeCompare(b.finished || "") || sg * added(a, b),
+      added: (a, b) => sg * added(a, b),
+      rating: (a, b) => (!a.rating - !b.rating) || sg * ((a.rating || 0) - (b.rating || 0)) || recent(a, b),
+      title: (a, b) => sg * zh(a.title, b.title),
+      author: (a, b) => (!a.author - !b.author) || sg * zh(a.author || "", b.author || "") || recent(a, b),
+    };
+    return list.sort(by[state.sort]);
+  }
+  function setSort(k) {
+    if (state.sort === k) state.dir = state.dir === "asc" ? "desc" : "asc"; else { state.sort = k; state.dir = defDir(k); }
+    lsSet(LS_SORT, state.sort); lsSet(LS_DIR, state.dir);
+    render({ flip: true });
+  }
+
+  // ---------- toast ----------
+  let toastTimer = null;
+  function toast(msg, opt = {}) {
+    const t = $("toast"), act = $("toast-act");
+    $("toast-msg").textContent = msg; t.classList.toggle("err", !!opt.err);
+    act.hidden = !opt.action; if (opt.action) { act.textContent = opt.action.label; act.onclick = () => { hideToast(); opt.action.fn(); }; }
+    t.classList.add("in"); clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, opt.action ? 6500 : opt.err ? 5000 : 2800);
+  }
+  function hideToast() { $("toast").classList.remove("in"); }
+
+  // ---------- header bits ----------
+  let statsShown = false;
+  function renderStats() {
+    const all = books(), y = String(new Date().getFullYear());
+    const items = [["共", all.length, "本"], ["作者", new Set(all.map(b => b.author).filter(Boolean)).size, "位"]];
+    const thisYear = all.filter(b => (b.finished || "").startsWith(y)).length; if (thisYear) items.push(["今年读完", thisYear, "本"]);
+    const loved = all.filter(b => b.rating >= 4).length; if (loved) items.push(["四星以上", loved, "本"]);
+    const box = $("stats"); box.textContent = "";
+    const countUp = !statsShown && all.length && !RM.matches; if (all.length) statsShown = true;
+    for (const [k, n, unit] of items) {
+      const sp = el("span", null, k + " "), b = el("b", null, String(n)); sp.append(b, " " + unit); box.append(sp);
+      if (countUp && n > 3) { const t0 = performance.now(); const tick = (t) => { const p = Math.min(1, (t - t0) / 520), e = 1 - Math.pow(1 - p, 4); b.textContent = String(Math.round(n * e)); if (p < 1) requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+    }
+  }
+  const chipEls = new Map(); let chipSig = "";
+  function renderChips() {
+    const counts = new Map();
+    for (const id in store.books) (store.books[id].tags || []).forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
+    if (state.tag && !counts.has(state.tag)) state.tag = "";
+    const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-Hans-CN"));
+    const sig = tags.map(t => t.join(":")).join("|");
+    const box = $("chips");
+    if (sig !== chipSig) {
+      chipSig = sig; chipEls.clear(); box.textContent = "";
+      const add = (key, label, n) => {
+        const c = el("button", "chip", label); c.type = "button"; if (n) c.append(el("i", null, String(n)));
+        c.onclick = () => { state.tag = key && state.tag === key ? "" : key; render({ flip: true }); c.scrollIntoView({ behavior: RM.matches ? "auto" : "smooth", inline: "center", block: "nearest" }); };
+        chipEls.set(key, c); box.append(c);
+      };
+      if (tags.length) add("", "全部");
+      tags.forEach(([t, n]) => add(t, t, n));
+    }
+    for (const [k, c] of chipEls) { const on = k === state.tag; c.classList.toggle("on", on); c.setAttribute("aria-pressed", on ? "true" : "false"); }
+  }
+  function renderSort() {
+    $("sort-label").textContent = SORTS.find(x => x[0] === state.sort)[1];
+    const asc = state.dir === "asc";
+    $("btn-dir").classList.toggle("asc", asc);
+    $("btn-dir").setAttribute("aria-label", asc ? "当前升序，点击改为降序" : "当前降序，点击改为升序");
+    document.querySelectorAll("#thead button").forEach(b => { const on = b.dataset.sort === state.sort; b.classList.toggle("on", on); b.classList.toggle("asc", on && asc); });
+    document.querySelectorAll("#sort-pop button").forEach(b => b.classList.toggle("on", b.dataset.sort === state.sort));
+  }
+
+  // ---------- rows ----------
+  const rowEls = new Map();
+  const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
+  function starsEl(n) {
+    const s = el("span", "stars"); s.setAttribute("role", "img"); s.setAttribute("aria-label", n + " 星");
+    s.append("★".repeat(n), el("span", "off", "★".repeat(5 - n))); return s;
+  }
+  function fillRow(r, b) {
+    r.textContent = "";
+    const no = el("span", "c-no");
+    const t = el("button", "c-title", "《" + b.title + "》"); t.type = "button";
+    const author = el("div", "c-author", b.author || "—");
+    const cast = el("div", "c-cast", (b.cast || []).join(" × ") || "—");
+    const rate = el("div", "c-rate"); if (b.rating) rate.append(starsEl(b.rating));
+    const meta = el("div", "c-meta"); const parts = [];
+    if (b.author) parts.push(el("span", null, b.author));
+    if (b.cast && b.cast.length) parts.push(el("span", "who", b.cast.join(" × ")));
+    if (b.finished) parts.push(el("span", null, b.finished.replace(/-/g, ".")));
+    parts.forEach((p, k) => { if (k) meta.append(el("span", "sep", "·")); meta.append(p); });
+    if (!parts.length) meta.textContent = "未填作者";
+    const th = el("div", "c-th", b.thoughts || "");
+    const extra = el("div", "extra"); extra.inert = true;
+    const tags = el("div", "tags"); (b.tags || []).forEach(x => { const c = el("button", "tag", x); c.type = "button"; c.onclick = () => { state.tag = x; window.scrollTo({ top: 0, behavior: RM.matches ? "auto" : "smooth" }); render({ flip: true }); }; tags.append(c); });
+    if (b.finished && DESK.matches) tags.append(el("span", "hint", "读完 " + b.finished.replace(/-/g, ".")));
+    const acts = el("div", "acts");
+    const del = el("button", "btn text danger sm", "删除"); del.type = "button"; del.onclick = () => removeBook(b.id);
+    const edit = el("button", "btn primary sm", "编辑"); edit.type = "button"; edit.onclick = () => openForm(b.id);
+    acts.append(del, edit); extra.append(tags, acts);
+    r.append(no, t, author, cast, rate, meta, th, extra);
+  }
+  function makeRow(id) {
+    const r = el("div", "row"); r.dataset.id = id;
+    r.addEventListener("click", (e) => {
+      if (e.target.closest(".extra")) return;
+      if (r.classList.contains("open") && String(getSelection()).trim() && r.contains(getSelection().anchorNode)) return; // let people select text in an open note
+      toggleRow(id);
+    });
+    return r;
+  }
+  function applyOpen(r, open) {
+    r.classList.toggle("open", open);
+    const t = r.querySelector(".c-title"), x = r.querySelector(".extra");
+    if (t) t.setAttribute("aria-expanded", open ? "true" : "false"); if (x) x.inert = !open;
+  }
+  function setOpen(r, open) {
+    if (!r || r.classList.contains("open") === open) return;
+    if (r._an) { r._an.cancel(); r._an = null; }
+    if (RM.matches || !r.isConnected) return applyOpen(r, open);
+    const from = r.offsetHeight; let to;
+    if (open) { applyOpen(r, true); to = r.offsetHeight; }
+    else { r.classList.remove("open"); to = r.offsetHeight; r.classList.add("open", "closing"); }
+    r.style.overflow = "hidden";
+    const an = r._an = r.animate([{ height: from + "px" }, { height: to + "px" }], { duration: open ? 380 : 260, easing: EASE });
+    const done = () => { if (r._an !== an) return; r._an = null; r.style.overflow = ""; r.classList.remove("closing"); if (!open) applyOpen(r, false); };
+    an.onfinish = done; an.oncancel = () => { r.style.overflow = ""; r.classList.remove("closing"); };
+  }
+  function toggleRow(id) {
+    const prev = state.open; state.open = prev === id ? null : id;
+    if (prev && prev !== id) setOpen(rowEls.get(prev), false);
+    setOpen(rowEls.get(id), state.open === id);
+  }
+
+  function render(opt = {}) {
+    renderStats(); renderChips(); renderSort();
+    const box = $("rows"), all = Object.keys(store.books).length;
+    $("thead").style.visibility = all ? "" : "hidden";
+    const animate = !!opt.flip && !RM.matches;
+    const before = new Map(), vh = innerHeight;
+    if (animate) for (const [id, r] of rowEls) { if (!r.isConnected) continue; const rc = r.getBoundingClientRect(); if (rc.bottom > -120 && rc.top < vh + 120) before.set(id, rc.top); }
+
+    const frag = document.createDocumentFragment(), seen = new Set();
+    if (!all) frag.append(emptyState());
+    else {
+      const list = filtered();
+      if (!list.length) frag.append(noResults());
+      const grouped = state.sort === "date" && list.some(b => b.finished);
+      const yearOf = (b) => (b.finished || "").slice(0, 4) || "未记日期";
+      const per = new Map(); if (grouped) list.forEach(b => per.set(yearOf(b), (per.get(yearOf(b)) || 0) + 1));
+      let lastY = null;
+      list.forEach((b, i) => {
+        if (grouped && yearOf(b) !== lastY) { lastY = yearOf(b); const g = el("div", "group"); g.append(el("b", null, lastY), per.get(lastY) + " 本"); frag.append(g); }
+        let r = rowEls.get(b.id); if (!r) { r = makeRow(b.id); rowEls.set(b.id, r); }
+        const sig = (b.updatedAt || 0) + "|" + DESK.matches;
+        if (r._sig !== sig) { fillRow(r, b); r._sig = sig; r.classList.remove("open"); }
+        if (r._an) { r._an.cancel(); r._an = null; }
+        r.firstChild.textContent = String(i + 1);
+        if (r.classList.contains("open") !== (state.open === b.id)) applyOpen(r, state.open === b.id);
+        seen.add(b.id); frag.append(r);
+      });
+    }
+    for (const id of [...rowEls.keys()]) if (!seen.has(id)) rowEls.delete(id);
+    if (state.open && !seen.has(state.open)) state.open = null;
+    box.replaceChildren(frag);
+
+    if (animate || (state.firstPaint && all && !RM.matches)) {
+      let n = 0;
+      for (const [id, r] of rowEls) {
+        const rc = r.getBoundingClientRect(); if (rc.bottom < -120) continue; if (rc.top > vh + 120) break;
+        const f = before.get(id);
+        if (f != null) { const dy = f - rc.top; if (Math.abs(dy) > 1) r.animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }], { duration: 460, easing: EASE }); }
+        else { r.animate([{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }], { duration: 380, easing: EASE, delay: Math.min(n, 12) * 22, fill: "backwards" }); n++; }
+      }
+      box.querySelectorAll(".group, .empty").forEach(g => g.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: "ease-out" }));
+    }
+    if (all) state.firstPaint = false;
+  }
+  function emptyState() {
+    const e = el("div", "empty");
+    if (initialPull) { for (let i = 0; i < 6; i++) { const s = el("div", "skel"); s.append(el("i"), el("i")); e.append(s); } e.style.padding = "0"; e.setAttribute("aria-label", "正在从云端取回记录"); return e; }
+    e.append(el("h2", null, "书架还是空的"), el("p", null, "记下刚读完的一本，或者把以前的记录搬过来。"));
+    const btns = el("div", "btns");
+    const a = el("button", "btn primary", "＋ 记一本"); a.onclick = () => openForm(null);
+    const b = el("button", "btn", "从备忘录导入"); b.onclick = openImport;
+    const c = el("button", "btn", "导入备份文件"); c.onclick = () => $("file-in").click();
+    btns.append(a, b, c); e.append(btns); return e;
+  }
+  function noResults() {
+    const e = el("div", "empty");
+    e.append(el("p", null, state.q ? "没有找到和「" + state.q + "」有关的书。" : "「" + state.tag + "」下还没有书。"));
+    const btns = el("div", "btns"), c = el("button", "btn", "清除筛选");
+    c.onclick = () => { state.q = ""; state.tag = ""; $("q").value = ""; $("q-clear").classList.remove("on"); render({ flip: true }); };
+    btns.append(c); e.append(btns); return e;
+  }
+
+  // ---------- writes ----------
+  function commit(opt) { saveStore(); render(opt || { flip: true }); queueSync(); }
+  function flash(id) {
+    const r = rowEls.get(id); if (!r) return;
+    r.scrollIntoView({ block: "center", behavior: RM.matches ? "auto" : "smooth" });
+    if (!RM.matches) r.animate([{ boxShadow: "0 0 0 2px var(--rose)" }, { boxShadow: "0 0 0 2px transparent" }], { duration: 1100, easing: "ease-out", delay: 250 });
+  }
+  function removeBook(id) {
+    const b = store.books[id], r = rowEls.get(id); if (!b) return;
+    const go = () => {
+      const saved = { ...b }; delete store.books[id]; store.deleted[id] = Date.now(); if (state.open === id) state.open = null;
+      commit({ flip: false });
+      toast("已删除《" + saved.title + "》", { action: { label: "撤销", fn: () => { store.books[id] = { ...saved, updatedAt: Date.now() }; delete store.deleted[id]; state.open = id; commit(); flash(id); } } });
+    };
+    if (!r || RM.matches) return go();
+    r.style.overflow = "hidden"; r.style.pointerEvents = "none";
+    r.animate([{ height: r.offsetHeight + "px", opacity: 1 }, { height: "0px", opacity: 0, paddingBlock: "0px" }], { duration: 300, easing: EASE }).onfinish = go;
+  }
+
+  // ---------- sheets ----------
+  let curSheet = null, lastFocus = null;
+  function openSheet(id) {
+    if (curSheet) closeSheet(true);
+    closePop();
+    const w = $(id); lastFocus = document.activeElement; curSheet = w;
+    w.hidden = false; w.style.removeProperty("background-color"); void w.offsetWidth; w.classList.add("in");
+    document.documentElement.classList.add("locked"); syncKb();
+    w.querySelector(".sheet-body").scrollTop = 0;
+  }
+  function closeSheet(keepLock) {
+    const w = curSheet; if (!w) return; curSheet = null;
+    const sh = w.querySelector(".sheet"); sh.classList.remove("dragging"); sh.style.transform = ""; w.style.removeProperty("background-color");
+    w.classList.remove("in"); if (document.activeElement && w.contains(document.activeElement)) document.activeElement.blur();
+    if (!keepLock) { document.documentElement.classList.remove("locked"); if (lastFocus && lastFocus.isConnected && DESK.matches) lastFocus.focus({ preventScroll: true }); }
+    clearTimeout(w._t); w._t = setTimeout(() => { if (curSheet !== w) { w.hidden = true; w.style.removeProperty("--kb"); } }, RM.matches ? 0 : 320);
+  }
+  function requestClose() {
+    if (!curSheet) return;
+    if (curSheet.id === "ov-form" && formDirty() && $("f-note").hidden) {
+      $("f-note").hidden = false; $("f-cancel").textContent = "放弃改动";
+      const sh = curSheet.querySelector(".sheet"); sh.style.transform = ""; sh.classList.remove("shake"); void sh.offsetWidth; sh.classList.add("shake");
+      return;
+    }
+    closeSheet();
+  }
+  document.querySelectorAll(".ov").forEach(o => {
+    o.addEventListener("pointerdown", (e) => { o._down = e.target === o; });
+    o.addEventListener("click", (e) => { if (e.target === o && o._down) requestClose(); });
+    o.querySelectorAll("[data-close]").forEach(b => b.onclick = () => closeSheet());
+    // drag the sheet down to dismiss (phone)
+    const sh = o.querySelector(".sheet"), head = o.querySelector(".sheet-head"); let y0 = 0, dy = 0, t0 = 0, drag = false;
+    head.addEventListener("pointerdown", (e) => { if (DESK.matches || curSheet !== o) return; drag = true; y0 = e.clientY; dy = 0; t0 = e.timeStamp; head.setPointerCapture(e.pointerId); sh.classList.add("dragging"); });
+    head.addEventListener("pointermove", (e) => { if (!drag) return; dy = Math.max(0, e.clientY - y0); sh.style.transform = "translateY(" + dy + "px)"; o.style.backgroundColor = "color-mix(in srgb, var(--scrim) " + Math.round(100 * Math.max(.25, 1 - dy / 500)) + "%, transparent)"; });
+    const end = (e) => {
+      if (!drag) return; drag = false; sh.classList.remove("dragging");
+      const fast = dy / Math.max(1, e.timeStamp - t0) > .6 && dy > 30;
+      if (dy > 120 || fast) requestClose();
+      if (curSheet === o) { sh.style.transform = ""; o.style.removeProperty("background-color"); }
+    };
+    head.addEventListener("pointerup", end); head.addEventListener("pointercancel", end);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { if (popOpen) closePop(); else requestClose(); return; }
+    if (e.key === "Tab" && curSheet) { // keep focus inside the open sheet
+      const f = [...curSheet.querySelectorAll("button, input, textarea")].filter(x => !x.hidden && !x.disabled && x.offsetParent);
+      if (!f.length) return; const first = f[0], last = f[f.length - 1];
+      if (!curSheet.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    if (e.key === "/" && !curSheet && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("q").focus(); }
+  });
+  // lift sheets and toasts above the on-screen keyboard
+  function syncKb() {
+    const vv = window.visualViewport; if (!vv) return;
+    const kb = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+    const v = kb > 60 ? kb + "px" : null;
+    if (curSheet) v ? curSheet.style.setProperty("--kb", v) : curSheet.style.removeProperty("--kb");
+    v ? $("toast").style.setProperty("--kb", v) : $("toast").style.removeProperty("--kb");
+  }
+  if (window.visualViewport) { visualViewport.addEventListener("resize", syncKb); visualViewport.addEventListener("scroll", syncKb); }
+
+  // ---------- sort popover ----------
+  let popOpen = false;
+  const pop = $("sort-pop");
+  SORTS.forEach(([k, label, , note]) => {
+    const b = el("button"); b.type = "button"; b.dataset.sort = k; b.setAttribute("role", "menuitemradio");
+    const txt = el("span", null, label); if (note) txt.append(el("small", null, note));
+    b.append(txt); b.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>');
+    b.onclick = () => { if (state.sort !== k) { state.sort = k; state.dir = defDir(k); lsSet(LS_SORT, k); lsSet(LS_DIR, state.dir); render({ flip: true }); } closePop(); };
+    pop.append(b);
+  });
+  function openPop() {
+    const rc = $("btn-sort").getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(rc.left, innerWidth - 210)) + "px"; pop.style.top = rc.bottom + 8 + "px";
+    pop.classList.add("in"); popOpen = true; $("btn-sort").setAttribute("aria-expanded", "true");
+  }
+  function closePop() { if (!popOpen) return; pop.classList.remove("in"); popOpen = false; $("btn-sort").setAttribute("aria-expanded", "false"); }
+  $("btn-sort").onclick = () => popOpen ? closePop() : openPop();
+  $("btn-dir").onclick = () => setSort(state.sort);
+  document.addEventListener("pointerdown", (e) => { if (popOpen && !e.target.closest("#sort-pop, #btn-sort")) closePop(); });
+  window.addEventListener("scroll", closePop, { passive: true });
+  document.querySelectorAll("#thead button").forEach(b => { b.insertAdjacentHTML("beforeend", ARROW); b.onclick = () => setSort(b.dataset.sort); });
+
+  // ---------- form ----------
+  let formSnap = "";
+  const formVals = () => JSON.stringify([$("f-title").value, $("f-author").value, $("f-cast").value, $("f-date").value, $("f-tags").value, $("f-thoughts").value, state.rating]);
+  const formDirty = () => formVals() !== formSnap;
+  function drawStars() {
+    const box = $("f-stars");
+    if (!box.children.length) for (let i = 1; i <= 5; i++) {
+      const b = el("button", "s", "★"); b.type = "button"; b.style.setProperty("--i", i - 1); b.setAttribute("aria-label", i + " 星");
+      b.onclick = () => { state.rating = state.rating === i ? 0 : i; drawStars(); }; box.append(b);
+    }
+    [...box.children].forEach((b, i) => { b.classList.toggle("on", i < state.rating); b.setAttribute("aria-pressed", i < state.rating ? "true" : "false"); });
+  }
+  function openForm(id) {
+    const b = id ? store.books[id] : null; state.editing = b ? id : null;
+    $("form-title").textContent = b ? "编辑《" + b.title + "》" : "记一本新书";
+    $("f-title").value = b ? b.title : ""; $("f-author").value = b ? b.author : "";
+    $("f-cast").value = b ? (b.cast || []).join(" ") : ""; $("f-date").value = b ? (b.finished || "") : today();
+    $("f-tags").value = b ? (b.tags || []).join(" ") : ""; $("f-thoughts").value = b ? b.thoughts : "";
+    state.rating = b ? (b.rating || 0) : 0; drawStars();
+    $("f-title-err").textContent = ""; $("f-title-wrap").classList.remove("bad");
+    $("f-note").hidden = true; $("f-cancel").textContent = "取消"; formSnap = formVals();
+    openSheet("ov-form");
+    if (!b && DESK.matches) setTimeout(() => $("f-title").focus(), 60);
+  }
+  function saveForm() {
+    const data = clean({ title: $("f-title").value, author: $("f-author").value, cast: $("f-cast").value, finished: $("f-date").value, rating: state.rating, tags: $("f-tags").value, thoughts: $("f-thoughts").value });
+    if (!data.title) {
+      $("f-title-err").textContent = "书名不能为空"; const w = $("f-title-wrap"); w.classList.add("bad"); w.classList.remove("shake"); void w.offsetWidth; w.classList.add("shake");
+      $("f-title").focus(); return;
+    }
+    const now = Date.now(), id = state.editing || newId(), old = store.books[id];
+    store.books[id] = { ...data, createdAt: (old && old.createdAt) || now, updatedAt: now }; delete store.deleted[id];
+    state.open = id; state.q = ""; $("q").value = ""; $("q-clear").classList.remove("on");
+    if (state.tag && !data.tags.includes(state.tag)) state.tag = "";
+    closeSheet(); commit(); flash(id);
+    toast(old ? "已更新《" + data.title + "》" : "已记下《" + data.title + "》");
+  }
+  $("f-title").addEventListener("input", () => { $("f-title-err").textContent = ""; $("f-title-wrap").classList.remove("bad"); });
+  $("f-cancel").onclick = () => closeSheet();
+  $("f-save").onclick = saveForm;
+  $("f-stars-clear").onclick = () => { state.rating = 0; drawStars(); };
+  $("ov-form").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveForm(); });
+
+  // ---------- memo import ----------
+  const DATE_RE = /(\d{4})\s*[.\-/年]\s*(\d{1,2})(?:\s*[.\-/月]\s*(\d{1,2}))?\s*日?/;
+  function parseHeader(line) {
+    let rest = line.replace(/^\s*(\d+\s*[.、)）]|[-*•·]\s)\s*/, "").trim();
+    const out = { title: "", author: "", finished: "", rating: 0 };
+    const dm = rest.match(DATE_RE); if (dm) { out.finished = normDate(dm[0]); rest = rest.replace(dm[0], " "); }
+    const starCount = (rest.match(/[★⭐]/g) || []).length;
+    const rm = rest.match(/(\d(?:\.\d)?)\s*(?:\/\s*5|分|星)/);
+    if (starCount) { out.rating = starCount; rest = rest.replace(/[★☆⭐]+/g, " "); }
+    else if (rm) { out.rating = clampRating(rm[1]); rest = rest.replace(rm[0], " "); }
+    const bm = rest.match(/《([^》]+)》/);
+    if (bm) { out.title = bm[1].trim(); rest = rest.replace(bm[0], " "); }
+    else { const parts = rest.split(/\s+[-—–|/]\s*|\s*[—–|]\s*|\s*[/／]\s*|\s+by\s+|_/i); out.title = (parts.shift() || "").trim(); rest = parts.join(" "); }
+    out.author = rest.replace(/作者\s*[:：]?|by\s/ig, " ").replace(/[()（）\[\]【】,，:：;；]/g, " ").replace(/\s+/g, " ").trim();
+    if (out.author.length > 30) out.author = "";
+    return out;
+  }
+  function parseMemo(text) {
+    const lines = text.replace(/\r/g, "").split("\n"), hasBrackets = /《[^》]+》/.test(text);
+    const blocks = []; let cur = null, prevBlank = true;
+    const isHead = (ln) => hasBrackets ? /^\s*(\d+\s*[.、)）]\s*)?[^《\n]{0,6}《[^》]+》/.test(ln) : prevBlank && ln.trim();
+    for (const ln of lines) {
+      if (isHead(ln)) { cur = { head: ln, body: [] }; blocks.push(cur); }
+      else if (cur) cur.body.push(ln);
+      else if (ln.trim()) { cur = { head: ln, body: [] }; blocks.push(cur); }
+      prevBlank = !ln.trim();
+    }
+    return blocks.map(bk => {
+      const h = parseHeader(bk.head); let body = bk.body.join("\n").trim();
+      if (!h.finished) { const dm = body.match(DATE_RE); if (dm && body.indexOf(dm[0]) < 40) { h.finished = normDate(dm[0]); body = body.replace(dm[0], "").trim(); } }
+      const am = body.match(/^作者\s*[:：]\s*(.+)$/m); if (am && !h.author) { h.author = am[1].trim(); body = body.replace(am[0], "").trim(); }
+      return clean({ ...h, cast: [], thoughts: body, tags: [] });
+    }).filter(b => b.title);
+  }
+  function openImport() { state.parsed = []; drawPreview(); $("imp-status").textContent = ""; openSheet("ov-import"); }
+  function drawPreview() {
+    const box = $("imp-preview"); box.textContent = "";
+    state.parsed.forEach((b, i) => {
+      const r = el("label", "pv"); r.style.setProperty("--i", i);
+      const cb = el("input"); cb.type = "checkbox"; cb.checked = b._on !== false; cb.onchange = () => { b._on = cb.checked; countSel(); };
+      const info = el("div"); info.style.minWidth = "0";
+      info.append(el("div", "t", "《" + b.title + "》"), el("div", "m", [b.author || "作者未识别", b.finished, b.rating ? "★".repeat(b.rating) : ""].filter(Boolean).join(" · ")), el("div", "x", b.thoughts || "（没有读后感）"));
+      r.append(cb, info); box.append(r);
+    });
+    $("imp-save").hidden = !state.parsed.length; countSel();
+  }
+  function countSel() { const n = state.parsed.filter(b => b._on !== false).length; $("imp-save").textContent = "导入 " + n + " 本"; $("imp-save").disabled = !n; }
+  $("imp-parse").onclick = () => {
+    const t = $("imp-text").value.trim();
+    if (!t) { $("imp-status").textContent = "先把备忘录内容粘贴进来。"; $("imp-text").focus(); return; }
+    state.parsed = parseMemo(t);
+    $("imp-status").textContent = state.parsed.length ? "认出 " + state.parsed.length + " 本，去掉不要的再点「导入」。" : "没认出书名。给书名加上《》，或者每本书之间空一行再试。";
+    drawPreview();
+  };
+  $("imp-save").onclick = () => {
+    const pick = state.parsed.filter(b => b._on !== false); if (!pick.length) return;
+    const base = Date.now();
+    pick.forEach((p, i) => { const { _on, ...b } = p; store.books[newId() + i] = { ...b, createdAt: base + pick.length - i, updatedAt: base }; });
+    $("imp-text").value = ""; state.parsed = []; closeSheet(); commit(); toast("已导入 " + pick.length + " 本");
+  };
+
+  // ---------- backup ----------
+  function download(name, text, type) {
+    const a = el("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+  function exportJson() { closeSheet(); const all = books(); if (!all.length) return toast("还没有记录可以导出。"); download("读书札记_" + today() + ".json", JSON.stringify({ app: "reading-log", exportedAt: new Date().toISOString(), books: all }, null, 1), "application/json"); toast("已导出 " + all.length + " 本的备份"); }
+  function exportMd() {
+    closeSheet(); const all = books().sort((a, b) => (b.finished || "").localeCompare(a.finished || "") || (b.createdAt || 0) - (a.createdAt || 0));
+    if (!all.length) return toast("还没有记录可以导出。");
+    const cell = (s) => String(s || "").replace(/\|/g, "\\|").replace(/\n+/g, "<br>");
+    let md = "# 读书札记\n\n导出于 " + today() + "，共 " + all.length + " 本\n\n| 书名 | 作者 | 主角 | 评分 | 读完 | 标签 | 感受 |\n|---|---|---|---|---|---|---|\n";
+    for (const b of all) md += "| 《" + cell(b.title) + "》 | " + cell(b.author) + " | " + cell((b.cast || []).join(" × ")) + " | " + (b.rating ? "★".repeat(b.rating) : "") + " | " + (b.finished || "") + " | " + cell((b.tags || []).join(" ")) + " | " + cell(b.thoughts) + " |\n";
+    download("读书札记_" + today() + ".md", md, "text/markdown"); toast("已导出 Markdown");
+  }
+  function restore(text) {
+    let data; try { data = JSON.parse(text); } catch (e) { return toast("这个文件不是有效的 JSON 备份。", { err: true }); }
+    let list = Array.isArray(data) ? data : data && data.books; if (list && !Array.isArray(list)) list = Object.keys(list).map(id => ({ id, ...list[id] }));
+    if (!Array.isArray(list)) return toast("文件里没有找到书的记录。", { err: true });
+    let added = 0, skipped = 0; const now = Date.now();
+    list.forEach((raw, i) => {
+      const b = clean(raw || {}); if (!b.title) { skipped++; return; }
+      const id = /^[\w.~:@+-]{1,64}$/.test(raw.id || "") ? raw.id : newId() + i, old = store.books[id];
+      const rec = { ...b, createdAt: Number(raw.createdAt) || now - i, updatedAt: Number(raw.updatedAt) || now };
+      if (old && (old.updatedAt || 0) >= rec.updatedAt) { skipped++; return; }
+      if (store.deleted[id] >= rec.updatedAt) rec.updatedAt = now;
+      store.books[id] = rec; delete store.deleted[id]; added++;
+    });
+    commit(); toast(added ? "已导入 " + added + " 本" + (skipped ? "，" + skipped + " 本已存在" : "") : "备份里的书这里都有了，没有新增。");
+  }
+  $("file-in").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; closeSheet(); f.text().then(restore, () => toast("读不了这个文件。", { err: true })); };
+
+  // ---------- cloud sync ----------
+  let key = lsGet(LS_KEY) || "", syncing = false, again = false, syncTimer = null, lastSync = 0, syncNote = "", initialPull = false;
+  function setSync(s, note) {
+    $("btn-sync").dataset.state = s; syncNote = note || "";
+    const label = { local: "云同步未开启", busy: "正在同步", ok: "已同步", err: "同步出错：" + syncNote }[s];
+    $("btn-sync").setAttribute("aria-label", label); $("btn-sync").title = label;
+    $("m-sync-sub").textContent = s === "local" ? "未开启，记录只在这台设备上" : s === "err" ? syncNote : "已开启";
+    if (curSheet && curSheet.id === "ov-sync") drawSync();
+  }
+  function queueSync(delay) { if (!key) return; clearTimeout(syncTimer); syncTimer = setTimeout(sync, delay == null ? 900 : delay); }
+  async function sync() {
+    if (!key) return setSync("local");
+    if (syncing) { again = true; return; }
+    syncing = true; setSync("busy");
+    try {
+      const res = await fetch(API + "/sync", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key }, body: JSON.stringify({ books: store.books, deleted: store.deleted }) });
+      if (res.status === 401 || res.status === 403) { setSync("err", "口令不对"); return; }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const changed = mergeInto(store, await res.json());
+      lastSync = Date.now(); const wasInitial = initialPull; initialPull = false;
+      if (changed) saveStore(); if (changed || wasInitial) render({ flip: true });
+      setSync("ok");
+    } catch (e) {
+      const wasInitial = initialPull; initialPull = false; if (wasInitial) render();
+      setSync("err", navigator.onLine === false ? "现在离线，联网后会自动同步" : "连不上同步服务，稍后自动重试");
+    } finally { syncing = false; if (again) { again = false; queueSync(0); } }
+  }
+  function drawSync() {
+    const kv = $("sync-kv"); kv.textContent = ""; const st = $("btn-sync").dataset.state;
+    const rows = [["状态", { local: "未开启", busy: "正在同步…", ok: "已同步", err: syncNote }[st]], ["本机记录", Object.keys(store.books).length + " 本"]];
+    if (lastSync) rows.push(["上次同步", new Date(lastSync).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })]);
+    rows.forEach(([k, v]) => kv.append(el("dt", null, k), el("dd", null, v)));
+    $("sync-off").hidden = $("sync-link").hidden = !key;
+  }
+  function openSync() { $("sync-key").value = key; drawSync(); openSheet("ov-sync"); }
+  $("sync-save").onclick = () => {
+    const v = $("sync-key").value.trim(); if (!v) { $("sync-key").focus(); return; }
+    key = v; lsSet(LS_KEY, key); sync().then(() => { if ($("btn-sync").dataset.state === "ok") { closeSheet(); toast("云同步已开启"); } });
+  };
+  $("sync-off").onclick = () => { key = ""; lsSet(LS_KEY, null); $("sync-key").value = ""; setSync("local"); toast("已在本机关闭同步，本机记录保留"); };
+  $("sync-link").onclick = () => {
+    const link = location.origin + location.pathname + "#k=" + encodeURIComponent(key);
+    navigator.clipboard.writeText(link).then(() => toast("已复制。在另一台设备打开这个链接就配好了"), () => toast("复制失败，请手动填口令。", { err: true }));
+  };
+  const hk = location.hash.match(/[#&]k=([^&]+)/);
+  if (hk) { key = decodeURIComponent(hk[1]); lsSet(LS_KEY, key); history.replaceState(null, "", location.pathname + location.search); }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastSync > 20000) queueSync(0); });
+  window.addEventListener("online", () => queueSync(0));
+  setInterval(() => { if (!document.hidden) queueSync(0); }, 120000);
+
+  // ---------- wiring ----------
+  $("q").addEventListener("input", (e) => { state.q = e.target.value; $("q-clear").classList.toggle("on", !!state.q); render({ flip: true }); });
+  $("q-clear").onclick = () => { state.q = ""; $("q").value = ""; $("q-clear").classList.remove("on"); render({ flip: true }); $("q").focus(); };
+  $("fab").onclick = () => openForm(null);
+  $("btn-add-d").onclick = () => openForm(null);
+  $("btn-more").onclick = () => openSheet("ov-menu");
+  $("btn-sync").onclick = openSync;
+  $("m-memo").onclick = openImport;
+  $("m-restore").onclick = () => $("file-in").click();
+  $("m-json").onclick = exportJson;
+  $("m-md").onclick = exportMd;
+  $("m-sync").onclick = openSync;
+  $("chips").addEventListener("wheel", (e) => { if (!e.deltaX && e.deltaY) { e.preventDefault(); $("chips").scrollLeft += e.deltaY; } }, { passive: false });
+
+  // dock: hairline once stuck; column header sits right under it
+  new IntersectionObserver(([en]) => $("dock").classList.toggle("stuck", !en.isIntersecting && en.boundingClientRect.top < 60), { rootMargin: "-1px 0px 0px 0px", threshold: 0 }).observe($("sentinel"));
+  const syncDock = () => document.documentElement.style.setProperty("--dock-h", $("dock").offsetHeight + "px");
+  new ResizeObserver(syncDock).observe($("dock")); syncDock();
+  DESK.addEventListener("change", () => render());
+  // add button steps aside while scrolling down
+  let lastY = scrollY, ticking = false;
+  window.addEventListener("scroll", () => {
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(() => { const y = scrollY, d = y - lastY; $("hero").style.setProperty("--p", Math.min(1, Math.max(0, y / 110)).toFixed(3)); if (Math.abs(d) > 8) { $("fab").classList.toggle("away", d > 0 && y > 160); lastY = y; } ticking = false; });
+  }, { passive: true });
+
+  // ---------- start ----------
+  initialPull = !!key && !Object.keys(store.books).length;
+  render();
+  if (key) { sync(); if (hk) toast("已连接云同步"); } else setSync("local");
+})();
+</script>
+</body>
+</html>

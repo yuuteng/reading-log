@@ -1,0 +1,5 @@
+.DS_Store
+*.env
+*backup*.json
+读书札记_*
+.impeccable/
